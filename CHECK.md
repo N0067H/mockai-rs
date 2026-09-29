@@ -6,7 +6,7 @@
 - [x] Write the README and list API endpoints
 - [x] Set up the HTTP server on port 58881
 - [x] Add CLI and environment settings
-- [ ] Add test key auth and OpenAI-style errors
+- [x] Add test key auth and OpenAI-style errors
 - [ ] Add fixed test data and model settings
 
 ## Core API

@@ -40,8 +40,27 @@ The API endpoints below are not available yet.
 | Set port | `--port` or `MOCKAI_PORT`; CLI takes priority |
 | Auth header | `Authorization: Bearer <test-key>` |
 | Default test key | `mock-api-key` |
+| Set test key | `--api-key` or `MOCKAI_API_KEY`; CLI takes priority |
 | API format | OpenAI paths, methods, field names, and response shapes |
 | Test data | Fixed replies, with no real model calls |
+
+## Auth and errors
+
+Requests to `/v1` and `/v1/*` need a Bearer test key:
+
+```sh
+curl http://localhost:58881/v1/models \
+  -H 'Authorization: Bearer mock-api-key'
+```
+
+Set a custom key with `cargo run -- --api-key my-test-key` or
+`MOCKAI_API_KEY=my-test-key cargo run`. Keys must be non-empty ASCII text with no spaces.
+The root path `/` does not need a key.
+
+A missing or bad key returns 401 with code `invalid_api_key`.
+With a valid key, API paths not yet added return 404.
+Unknown paths and wrong methods return JSON errors with status 404 and 405.
+Each error has `message`, `type`, `param`, and `code` inside an `error` object.
 
 ## Endpoints
 
@@ -161,3 +180,4 @@ See official OpenAI documentation for paths and data formats.
 - [Images](https://developers.openai.com/api/reference/resources/images)
 - [Audio](https://developers.openai.com/api/reference/resources/audio)
 - [Moderations](https://developers.openai.com/api/reference/resources/moderations)
+- [Error codes](https://developers.openai.com/api/docs/guides/error-codes)
