@@ -6,6 +6,15 @@ Use test data to get the same result on each run, without real model calls.
 
 ## Setup
 
+Run the server:
+
+```sh
+cargo run
+```
+
+Check the server at `http://localhost:58881/`. It returns `mockai-rs`.
+The API endpoints below are not available yet.
+
 | Item | Value |
 | --- | --- |
 | Host and port | `127.0.0.1:58881` |
