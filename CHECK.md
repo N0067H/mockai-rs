@@ -11,7 +11,7 @@
 
 ## Core API
 
-- [ ] Model list and lookup
+- [x] Model list and lookup
 - [ ] Chat Completions
 - [ ] Responses
 - [ ] Embeddings

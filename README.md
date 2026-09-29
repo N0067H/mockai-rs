@@ -30,7 +30,7 @@ CLI values take priority over environment variables, then defaults.
 Use `cargo run -- --help` to see all options.
 
 Check the server at `http://localhost:58881/`. It returns `mockai-rs`.
-The API endpoints below are not available yet.
+Model list and lookup are available. The other API endpoints below are not available yet.
 
 | Item | Value |
 | --- | --- |
@@ -76,6 +76,10 @@ A custom file replaces the built-in data. Add more entries to use more models,
 including OpenAI model names. Each model needs a unique ID, a non-empty reply,
 and a non-empty vector of finite numbers. IDs use ASCII text with no spaces or slashes.
 Unknown fields and bad data stop the server at startup. Restart to load file changes.
+
+Models can also set `created` (Unix time in seconds) and `owned_by`.
+Their defaults are `0` and `mockai-rs`. Model API replies include only
+`id`, `object`, `created`, and `owned_by`; test replies and vectors stay private.
 
 ## Auth and errors
 
@@ -183,6 +187,20 @@ Error example:
 ```
 
 ## Request examples
+
+List models or get one model:
+
+```sh
+curl http://localhost:58881/v1/models \
+  -H 'Authorization: Bearer mock-api-key'
+
+curl http://localhost:58881/v1/models/mock-model \
+  -H 'Authorization: Bearer mock-api-key'
+```
+
+The list uses `object: "list"` and a `data` array in file order.
+Each model uses `object: "model"`. An unknown model returns 404 with
+`code: "model_not_found"` and `param: "model"`.
 
 ```sh
 curl http://localhost:58881/v1/chat/completions \

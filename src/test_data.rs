@@ -12,8 +12,16 @@ pub struct TestData {
 #[serde(deny_unknown_fields)]
 pub struct Model {
     pub id: String,
+    #[serde(default)]
+    pub created: u64,
+    #[serde(default = "default_owner")]
+    pub owned_by: String,
     pub reply: String,
     pub embedding: Vec<f32>,
+}
+
+fn default_owner() -> String {
+    "mockai-rs".into()
 }
 
 impl TestData {

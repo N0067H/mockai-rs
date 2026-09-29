@@ -12,7 +12,7 @@ pub struct ApiError {
 
 #[derive(Serialize)]
 struct ErrorBody {
-    message: &'static str,
+    message: String,
     #[serde(rename = "type")]
     kind: &'static str,
     param: Option<&'static str>,
@@ -41,11 +41,23 @@ impl ApiError {
         Self::new(StatusCode::METHOD_NOT_ALLOWED, "Method not allowed.", None)
     }
 
+    pub fn model_not_found(model: &str) -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            body: ErrorBody {
+                message: format!("Model '{model}' not found."),
+                kind: "invalid_request_error",
+                param: Some("model"),
+                code: Some("model_not_found"),
+            },
+        }
+    }
+
     fn new(status: StatusCode, message: &'static str, code: Option<&'static str>) -> Self {
         Self {
             status,
             body: ErrorBody {
-                message,
+                message: message.into(),
                 kind: "invalid_request_error",
                 param: None,
                 code,

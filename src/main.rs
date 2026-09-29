@@ -1,6 +1,7 @@
 mod app;
 mod config;
 mod error;
+mod models;
 mod test_data;
 
 use clap::Parser;

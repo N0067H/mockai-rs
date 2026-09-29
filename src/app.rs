@@ -12,23 +12,21 @@ use axum::{
 use crate::error::ApiError;
 use crate::test_data::TestData;
 
-struct AppState {
+pub(crate) struct AppState {
     api_key: String,
-    _test_data: TestData,
+    pub(crate) test_data: TestData,
 }
 
 pub fn router(api_key: String, test_data: TestData) -> Router {
+    let state = Arc::new(AppState { api_key, test_data });
     Router::new()
         .route("/", get(|| async { "mockai-rs\n" }))
+        .route("/v1/models", get(crate::models::list))
+        .route("/v1/models/{model}", get(crate::models::get))
         .fallback(|| async { ApiError::not_found() })
         .method_not_allowed_fallback(|| async { ApiError::method_not_allowed() })
-        .layer(middleware::from_fn_with_state(
-            Arc::new(AppState {
-                api_key,
-                _test_data: test_data,
-            }),
-            authenticate,
-        ))
+        .layer(middleware::from_fn_with_state(state.clone(), authenticate))
+        .with_state(state)
 }
 
 async fn authenticate(
@@ -65,6 +63,81 @@ mod tests {
         super::router(api_key, crate::test_data::TestData::load(None).unwrap())
     }
 
+    async fn model_request(app: axum::Router, method: &str, path: &str) -> (StatusCode, Value) {
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .header("Authorization", "Bearer test-key")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status();
+        assert_eq!(response.headers()["content-type"], "application/json");
+        let body =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        (status, body)
+    }
+
+    #[tokio::test]
+    async fn model_list_and_lookup_use_configured_data() {
+        let data = serde_json::from_value(json!({"models": [
+            {"id": "custom-model", "created": 123, "owned_by": "test-owner", "reply": "Private reply", "embedding": [1]},
+            {"id": "other-model", "reply": "Other", "embedding": [2]}
+        ]})).unwrap();
+        let app = super::router("test-key".into(), data);
+        let (status, list) = model_request(app.clone(), "GET", "/v1/models").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            list,
+            json!({"object": "list", "data": [
+                {"id": "custom-model", "object": "model", "created": 123, "owned_by": "test-owner"},
+                {"id": "other-model", "object": "model", "created": 0, "owned_by": "mockai-rs"}
+            ]})
+        );
+        for (path, index) in [
+            ("/v1/models/custom-model", 0),
+            ("/v1/models/other%2Dmodel", 1),
+        ] {
+            let (status, model) = model_request(app.clone(), "GET", path).await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(model, list["data"][index]);
+        }
+        let (status, _) = model_request(app, "GET", "/v1/models/mock-model").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn default_model_and_missing_model_errors() {
+        let app = router("test-key".into());
+        let (status, model) = model_request(app.clone(), "GET", "/v1/models/mock-model").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            model,
+            json!({"id":"mock-model", "object":"model", "created":0, "owned_by":"mockai-rs"})
+        );
+        let (status, body) = model_request(app.clone(), "GET", "/v1/models/missing").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(
+            body,
+            json!({"error":{"message":"Model 'missing' not found.", "type":"invalid_request_error", "param":"model", "code":"model_not_found"}})
+        );
+        for path in ["/v1/models", "/v1/models/mock-model"] {
+            let (status, body) = model_request(app.clone(), "POST", path).await;
+            assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+            assert_eq!(body["error"]["type"], "invalid_request_error");
+            let response = app
+                .clone()
+                .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        }
+    }
+
     #[tokio::test]
     async fn api_auth_and_error_shapes() {
         for header in [
@@ -93,7 +166,7 @@ mod tests {
             );
         }
 
-        for path in ["/v1", "/v1/models", "/v1/missing"] {
+        for path in ["/v1", "/v1/missing"] {
             let response = router("custom-key".into())
                 .oneshot(
                     Request::builder()
