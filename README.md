@@ -30,7 +30,7 @@ CLI values take priority over environment variables, then defaults.
 Use `cargo run -- --help` to see all options.
 
 Check the server at `http://localhost:58881/`. It returns `mockai-rs`.
-Model list, model lookup, text Chat Completions, and text Responses are available.
+Model list, model lookup, text Chat Completions, text Responses, and Embeddings are available.
 The other API endpoints below are not available yet.
 
 | Item | Value |
@@ -245,6 +245,26 @@ This mock currently defaults to `store: false`, unlike OpenAI's default.
 non-null `previous_response_id` return 400. Saved responses and streams are separate features.
 
 `mock-model` is a test model ID.
+
+Get fixed embeddings:
+
+```sh
+curl http://localhost:58881/v1/embeddings \
+  -H 'Authorization: Bearer mock-api-key' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"mock-model","input":["Hello","World"],"encoding_format":"float"}'
+```
+
+`input` accepts a non-empty string, a string array, a token array, or an array of
+token arrays. Each input gets the same model test vector, with an `index` in input order.
+Batch inputs are limited to 2048 items. Token arrays use non-negative 32-bit integers
+and are limited to 8192 tokens each.
+`usage` counts words for text and array length for tokens; these are test counts.
+
+`encoding_format` is `float` by default. `base64` encodes little-endian float32 bytes.
+`dimensions` takes the first N values of the test vector, from 1 to its full length.
+`user` accepts a string but does not change the result. Bad input or options return 400;
+an unknown model returns 404.
 
 ## API docs
 

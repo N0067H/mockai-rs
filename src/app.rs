@@ -32,6 +32,7 @@ pub fn router(api_key: String, test_data: TestData) -> Router {
         .route("/v1/models/{model}", get(crate::models::get))
         .route("/v1/chat/completions", post(crate::chat::create))
         .route("/v1/responses", post(crate::responses::create))
+        .route("/v1/embeddings", post(crate::embeddings::create))
         .fallback(|| async { ApiError::not_found() })
         .method_not_allowed_fallback(|| async { ApiError::method_not_allowed() })
         .layer(middleware::from_fn_with_state(state.clone(), authenticate))

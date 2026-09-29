@@ -1,6 +1,7 @@
 mod app;
 mod chat;
 mod config;
+mod embeddings;
 mod error;
 mod models;
 mod responses;
