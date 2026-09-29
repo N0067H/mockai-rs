@@ -12,7 +12,7 @@
 ## Core API
 
 - [x] Model list and lookup
-- [ ] Chat Completions
+- [x] Chat Completions
 - [ ] Responses
 - [ ] Embeddings
 - [ ] SSE streams for Chat Completions and Responses

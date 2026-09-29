@@ -30,7 +30,8 @@ CLI values take priority over environment variables, then defaults.
 Use `cargo run -- --help` to see all options.
 
 Check the server at `http://localhost:58881/`. It returns `mockai-rs`.
-Model list and lookup are available. The other API endpoints below are not available yet.
+Model list, model lookup, and text Chat Completions are available.
+The other API endpoints below are not available yet.
 
 | Item | Value |
 | --- | --- |
@@ -201,6 +202,18 @@ curl http://localhost:58881/v1/models/mock-model \
 The list uses `object: "list"` and a `data` array in file order.
 Each model uses `object: "model"`. An unknown model returns 404 with
 `code: "model_not_found"` and `param: "model"`.
+
+Chat Completions returns the selected model's fixed `reply` in
+`choices[0].message.content`, with a new `chatcmpl-` ID and the current Unix time.
+`usage` counts words split by whitespace; it is a test count, not model token usage.
+
+Messages accept `system`, `developer`, `user`, and `assistant` roles.
+Content can be a string or an array of `{"type":"text","text":"..."}` parts.
+`temperature` (0 to 2) and `top_p` (0 to 1) are checked but do not change the fixed reply.
+Supported optional fields can be omitted or set to null. The current API accepts
+`stream: false`, `store: false`, `n: 1`, and `response_format: {"type":"text"}`.
+Other options, streaming, tools, JSON output, and saved chat replies return 400.
+Bad input returns an OpenAI-style error with the field name in `param`.
 
 ```sh
 curl http://localhost:58881/v1/chat/completions \

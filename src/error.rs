@@ -15,7 +15,7 @@ struct ErrorBody {
     message: String,
     #[serde(rename = "type")]
     kind: &'static str,
-    param: Option<&'static str>,
+    param: Option<String>,
     code: Option<&'static str>,
 }
 
@@ -47,8 +47,28 @@ impl ApiError {
             body: ErrorBody {
                 message: format!("Model '{model}' not found."),
                 kind: "invalid_request_error",
-                param: Some("model"),
+                param: Some("model".into()),
                 code: Some("model_not_found"),
+            },
+        }
+    }
+
+    pub fn invalid_request(message: impl Into<String>, param: Option<&str>) -> Self {
+        Self::request_error(StatusCode::BAD_REQUEST, message, param)
+    }
+
+    pub fn request_error(
+        status: StatusCode,
+        message: impl Into<String>,
+        param: Option<&str>,
+    ) -> Self {
+        Self {
+            status,
+            body: ErrorBody {
+                message: message.into(),
+                kind: "invalid_request_error",
+                param: param.map(str::to_owned),
+                code: None,
             },
         }
     }
