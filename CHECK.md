@@ -5,7 +5,7 @@
 - [x] Set up the Rust project
 - [x] Write the README and list API endpoints
 - [x] Set up the HTTP server on port 58881
-- [ ] Add CLI and environment settings
+- [x] Add CLI and environment settings
 - [ ] Add test key auth and OpenAI-style errors
 - [ ] Add fixed test data and model settings
 

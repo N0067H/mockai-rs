@@ -12,6 +12,23 @@ Run the server:
 cargo run
 ```
 
+Set the host and port:
+
+```sh
+cargo run -- --host 127.0.0.1 --port 58882
+```
+
+Or use environment variables:
+
+```sh
+MOCKAI_HOST=127.0.0.1 MOCKAI_PORT=58882 cargo run
+```
+
+CLI values take priority over environment variables, then defaults.
+`--host` takes an IPv4 or IPv6 address. `--port` takes a number from 0 to 65535;
+0 lets the OS pick a free port. The server prints the bound address on start.
+Use `cargo run -- --help` to see all options.
+
 Check the server at `http://localhost:58881/`. It returns `mockai-rs`.
 The API endpoints below are not available yet.
 
@@ -19,6 +36,7 @@ The API endpoints below are not available yet.
 | --- | --- |
 | Host and port | `127.0.0.1:58881` |
 | API base URL | `http://localhost:58881/v1` |
+| Set host | `--host` or `MOCKAI_HOST`; CLI takes priority |
 | Set port | `--port` or `MOCKAI_PORT`; CLI takes priority |
 | Auth header | `Authorization: Bearer <test-key>` |
 | Default test key | `mock-api-key` |
