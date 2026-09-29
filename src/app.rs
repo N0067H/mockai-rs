@@ -16,6 +16,7 @@ pub(crate) struct AppState {
     api_key: String,
     pub(crate) test_data: TestData,
     pub(crate) next_completion_id: AtomicU64,
+    pub(crate) next_response_id: AtomicU64,
 }
 
 pub fn router(api_key: String, test_data: TestData) -> Router {
@@ -23,12 +24,14 @@ pub fn router(api_key: String, test_data: TestData) -> Router {
         api_key,
         test_data,
         next_completion_id: AtomicU64::new(1),
+        next_response_id: AtomicU64::new(1),
     });
     Router::new()
         .route("/", get(|| async { "mockai-rs\n" }))
         .route("/v1/models", get(crate::models::list))
         .route("/v1/models/{model}", get(crate::models::get))
         .route("/v1/chat/completions", post(crate::chat::create))
+        .route("/v1/responses", post(crate::responses::create))
         .fallback(|| async { ApiError::not_found() })
         .method_not_allowed_fallback(|| async { ApiError::method_not_allowed() })
         .layer(middleware::from_fn_with_state(state.clone(), authenticate))

@@ -3,6 +3,7 @@ mod chat;
 mod config;
 mod error;
 mod models;
+mod responses;
 mod test_data;
 
 use clap::Parser;

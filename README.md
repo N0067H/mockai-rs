@@ -30,7 +30,7 @@ CLI values take priority over environment variables, then defaults.
 Use `cargo run -- --help` to see all options.
 
 Check the server at `http://localhost:58881/`. It returns `mockai-rs`.
-Model list, model lookup, and text Chat Completions are available.
+Model list, model lookup, text Chat Completions, and text Responses are available.
 The other API endpoints below are not available yet.
 
 | Item | Value |
@@ -226,9 +226,23 @@ curl http://localhost:58881/v1/chat/completions \
 curl http://localhost:58881/v1/responses \
   -H 'Authorization: Bearer mock-api-key' \
   -H 'Content-Type: application/json' \
-  -d '{"model":"mock-model","input":"Hello","stream":true}' \
-  --no-buffer
+  -d '{"model":"mock-model","input":"Hello","store":false}'
 ```
+
+Responses accepts a string or an array of text messages in `input`, plus optional
+`instructions`. Message roles are `system`, `developer`, `user`, and `assistant`.
+Content can be a string or `input_text` parts. Assistant messages also accept
+`output_text` parts, so you can add the returned `output` messages to the next input.
+
+The fixed reply is in `output[0].content[0].text`, with `status: "completed"`,
+a new `resp_` ID, and `created_at`. `usage` counts words in input and instructions,
+then words in the reply. Cached and reasoning token counts are zero.
+`temperature` and `top_p` use the same ranges as Chat Completions and do not change the reply.
+`text: {"format":{"type":"text"}}` is accepted.
+
+This mock currently defaults to `store: false`, unlike OpenAI's default.
+`store: true`, `stream: true`, `background: true`, tools, JSON output, and
+non-null `previous_response_id` return 400. Saved responses and streams are separate features.
 
 `mock-model` is a test model ID.
 
