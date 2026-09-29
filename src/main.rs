@@ -5,6 +5,7 @@ mod embeddings;
 mod error;
 mod models;
 mod responses;
+mod streaming;
 mod test_data;
 
 use clap::Parser;

@@ -15,7 +15,7 @@
 - [x] Chat Completions
 - [x] Responses
 - [x] Embeddings
-- [ ] SSE streams for Chat Completions and Responses
+- [x] SSE streams for Chat Completions and Responses
 - [ ] Tool calls and JSON output
 
 ## Saved data

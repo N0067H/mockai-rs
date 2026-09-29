@@ -6,6 +6,7 @@ use std::{
 use axum::{
     Json,
     extract::{State, rejection::JsonRejection},
+    response::{IntoResponse, Response},
 };
 use serde_json::{Value, json};
 
@@ -14,7 +15,7 @@ use crate::{app::AppState, error::ApiError};
 pub(crate) async fn create(
     State(state): State<Arc<AppState>>,
     payload: Result<Json<Value>, JsonRejection>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
     let Json(request) = payload.map_err(|error| {
         ApiError::request_error(
             error.status(),
@@ -60,7 +61,8 @@ pub(crate) async fn create(
         }
         let valid = match field.as_str() {
             "model" | "input" | "instructions" => true,
-            "stream" | "store" | "background" => value == &json!(false),
+            "stream" => value.is_boolean(),
+            "store" | "background" => value == &json!(false),
             "temperature" => value
                 .as_f64()
                 .is_some_and(|value| (0.0..=2.0).contains(&value)),
@@ -89,7 +91,7 @@ pub(crate) async fn create(
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    Ok(Json(json!({
+    let response = json!({
         "id":format!("resp_mock_{sequence}"), "object":"response", "created_at":created,
         "status":"completed", "error":null, "incomplete_details":null,
         "model":model.id, "instructions":object.get("instructions").unwrap_or(&Value::Null),
@@ -103,7 +105,12 @@ pub(crate) async fn create(
         "temperature":object.get("temperature").and_then(Value::as_f64).unwrap_or(1.0),
         "top_p":object.get("top_p").and_then(Value::as_f64).unwrap_or(1.0),
         "max_output_tokens":null, "reasoning":{"effort":null,"summary":null}, "truncation":"disabled"
-    })))
+    });
+    if object.get("stream") == Some(&json!(true)) {
+        Ok(crate::streaming::responses(response))
+    } else {
+        Ok(Json(response).into_response())
+    }
 }
 
 fn count_input(input: Option<&Value>) -> Result<usize, ApiError> {
@@ -324,7 +331,7 @@ mod tests {
         for (field, value) in [
             ("instructions", json!(5)),
             ("store", json!(true)),
-            ("stream", json!(true)),
+            ("stream", json!("bad")),
             ("background", json!(true)),
             ("previous_response_id", json!("resp_123")),
             ("tools", json!([])),

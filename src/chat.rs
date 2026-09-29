@@ -6,6 +6,7 @@ use std::{
 use axum::{
     Json,
     extract::{State, rejection::JsonRejection},
+    response::{IntoResponse, Response},
 };
 use serde_json::{Value, json};
 
@@ -14,7 +15,7 @@ use crate::{app::AppState, error::ApiError};
 pub(crate) async fn create(
     State(state): State<Arc<AppState>>,
     payload: Result<Json<Value>, JsonRejection>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
     let Json(request) = payload.map_err(|error| {
         ApiError::request_error(
             error.status(),
@@ -109,7 +110,17 @@ pub(crate) async fn create(
         }
         let valid = match field.as_str() {
             "model" | "messages" => true,
-            "stream" | "store" => value == &json!(false),
+            "stream" => value.is_boolean(),
+            "store" => value == &json!(false),
+            "stream_options" => {
+                value.is_null()
+                    || (object.get("stream") == Some(&json!(true))
+                        && value.as_object().is_some_and(|options| {
+                            options
+                                .iter()
+                                .all(|(key, value)| key == "include_usage" && value.is_boolean())
+                        }))
+            }
             "n" => value.as_u64() == Some(1),
             "temperature" => value
                 .as_f64()
@@ -139,14 +150,24 @@ pub(crate) async fn create(
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    Ok(Json(json!({
+    let response = json!({
         "id": format!("chatcmpl-mock-{sequence}"),
         "object": "chat.completion",
         "created": created,
         "model": model.id,
         "choices": [{"index":0,"message":{"role":"assistant","content":model.reply,"refusal":null},"finish_reason":"stop","logprobs":null}],
         "usage": {"prompt_tokens":prompt_tokens,"completion_tokens":completion_tokens,"total_tokens":prompt_tokens+completion_tokens}
-    })))
+    });
+    if object.get("stream") == Some(&json!(true)) {
+        let include_usage = object
+            .get("stream_options")
+            .and_then(|options| options.get("include_usage"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        Ok(crate::streaming::chat(response, include_usage))
+    } else {
+        Ok(Json(response).into_response())
+    }
 }
 
 fn word_count(text: &str) -> usize {
@@ -248,7 +269,7 @@ mod tests {
             ),
         ];
         for (field, value) in [
-            ("stream", json!(true)),
+            ("stream", json!("bad")),
             ("store", json!(true)),
             ("n", json!(2)),
             ("temperature", json!(3)),

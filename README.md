@@ -211,8 +211,8 @@ Messages accept `system`, `developer`, `user`, and `assistant` roles.
 Content can be a string or an array of `{"type":"text","text":"..."}` parts.
 `temperature` (0 to 2) and `top_p` (0 to 1) are checked but do not change the fixed reply.
 Supported optional fields can be omitted or set to null. The current API accepts
-`stream: false`, `store: false`, `n: 1`, and `response_format: {"type":"text"}`.
-Other options, streaming, tools, JSON output, and saved chat replies return 400.
+`stream: true` or `false`, `store: false`, `n: 1`, and `response_format: {"type":"text"}`.
+Other options, tools, JSON output, and saved chat replies return 400.
 Bad input returns an OpenAI-style error with the field name in `param`.
 
 ```sh
@@ -241,8 +241,36 @@ then words in the reply. Cached and reasoning token counts are zero.
 `text: {"format":{"type":"text"}}` is accepted.
 
 This mock currently defaults to `store: false`, unlike OpenAI's default.
-`store: true`, `stream: true`, `background: true`, tools, JSON output, and
-non-null `previous_response_id` return 400. Saved responses and streams are separate features.
+`store: true`, `background: true`, tools, JSON output, and
+non-null `previous_response_id` return 400. Saved responses are a separate feature.
+
+## Streams
+
+Set `stream: true` on either text endpoint to get SSE instead of JSON.
+Text is split into chunks of up to 16 Unicode characters, with no added delay.
+Joining the text chunks gives the same fixed reply as a plain request.
+Auth and input errors return JSON before the stream starts.
+
+```sh
+curl --no-buffer http://localhost:58881/v1/chat/completions \
+  -H 'Authorization: Bearer mock-api-key' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"mock-model","messages":[{"role":"user","content":"Hello"}],"stream":true,"stream_options":{"include_usage":true}}'
+
+curl --no-buffer http://localhost:58881/v1/responses \
+  -H 'Authorization: Bearer mock-api-key' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"mock-model","input":"Hello","stream":true,"store":false}'
+```
+
+Chat streams send the assistant role, text deltas, a `stop` chunk, then `[DONE]`.
+`stream_options.include_usage: true` adds a final usage chunk with empty `choices`
+before `[DONE]`. Without it, chunk usage is null.
+
+Response streams use named SSE events with matching `type` fields and rising
+`sequence_number` values. They send response, message, and content start events,
+text deltas, text/content/message done events, then `response.completed` with the
+full reply and usage. The stream ends after that event.
 
 `mock-model` is a test model ID.
 
@@ -279,3 +307,4 @@ See official OpenAI documentation for paths and data formats.
 - [Audio](https://developers.openai.com/api/reference/resources/audio)
 - [Moderations](https://developers.openai.com/api/reference/resources/moderations)
 - [Error codes](https://developers.openai.com/api/docs/guides/error-codes)
+- [Streaming](https://developers.openai.com/api/docs/guides/streaming-responses)
