@@ -41,8 +41,41 @@ The API endpoints below are not available yet.
 | Auth header | `Authorization: Bearer <test-key>` |
 | Default test key | `mock-api-key` |
 | Set test key | `--api-key` or `MOCKAI_API_KEY`; CLI takes priority |
+| Set test data | `--data-file` or `MOCKAI_DATA_FILE`; CLI takes priority |
 | API format | OpenAI paths, methods, field names, and response shapes |
 | Test data | Fixed replies, with no real model calls |
+
+## Test data
+
+The server loads test data once on start. The built-in data has one model,
+`mock-model`, with the reply `Hello from mockai-rs!` and the vector `[0.1, 0.2, 0.3]`.
+These values are shared by the API handlers as they are added.
+
+Use your own JSON file:
+
+```sh
+cargo run -- --data-file fixtures/default.json
+MOCKAI_DATA_FILE=fixtures/default.json cargo run
+```
+
+File format:
+
+```json
+{
+  "models": [
+    {
+      "id": "mock-model",
+      "reply": "Hello from mockai-rs!",
+      "embedding": [0.1, 0.2, 0.3]
+    }
+  ]
+}
+```
+
+A custom file replaces the built-in data. Add more entries to use more models,
+including OpenAI model names. Each model needs a unique ID, a non-empty reply,
+and a non-empty vector of finite numbers. IDs use ASCII text with no spaces or slashes.
+Unknown fields and bad data stop the server at startup. Restart to load file changes.
 
 ## Auth and errors
 

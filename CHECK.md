@@ -7,7 +7,7 @@
 - [x] Set up the HTTP server on port 58881
 - [x] Add CLI and environment settings
 - [x] Add test key auth and OpenAI-style errors
-- [ ] Add fixed test data and model settings
+- [x] Add fixed test data and model settings
 
 ## Core API
 

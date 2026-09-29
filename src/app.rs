@@ -10,20 +10,29 @@ use axum::{
 };
 
 use crate::error::ApiError;
+use crate::test_data::TestData;
 
-pub fn router(api_key: String) -> Router {
+struct AppState {
+    api_key: String,
+    _test_data: TestData,
+}
+
+pub fn router(api_key: String, test_data: TestData) -> Router {
     Router::new()
         .route("/", get(|| async { "mockai-rs\n" }))
         .fallback(|| async { ApiError::not_found() })
         .method_not_allowed_fallback(|| async { ApiError::method_not_allowed() })
         .layer(middleware::from_fn_with_state(
-            Arc::new(api_key),
+            Arc::new(AppState {
+                api_key,
+                _test_data: test_data,
+            }),
             authenticate,
         ))
 }
 
 async fn authenticate(
-    State(api_key): State<Arc<String>>,
+    State(state): State<Arc<AppState>>,
     request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
@@ -36,7 +45,7 @@ async fn authenticate(
             .and_then(|value| value.split_once(' '))
             .filter(|(scheme, _)| scheme.eq_ignore_ascii_case("Bearer"))
             .map(|(_, token)| token);
-        if headers.next().is_some() || token != Some(api_key.as_str()) {
+        if headers.next().is_some() || token != Some(state.api_key.as_str()) {
             return Err(ApiError::unauthorized());
         }
     }
@@ -52,7 +61,9 @@ mod tests {
     use serde_json::{Value, json};
     use tower::ServiceExt;
 
-    use super::router;
+    fn router(api_key: String) -> axum::Router {
+        super::router(api_key, crate::test_data::TestData::load(None).unwrap())
+    }
 
     #[tokio::test]
     async fn api_auth_and_error_shapes() {

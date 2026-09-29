@@ -1,0 +1,9 @@
+{
+  "models": [
+    {
+      "id": "mock-model",
+      "reply": "Hello from mockai-rs!",
+      "embedding": [0.1, 0.2, 0.3]
+    }
+  ]
+}

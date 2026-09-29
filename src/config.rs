@@ -1,4 +1,7 @@
-use std::net::{IpAddr, SocketAddr};
+use std::{
+    net::{IpAddr, SocketAddr},
+    path::PathBuf,
+};
 
 use clap::Parser;
 
@@ -13,6 +16,10 @@ pub struct Config {
 
     #[arg(long, env = "MOCKAI_API_KEY", default_value = "mock-api-key", hide_env_values = true, value_parser = parse_api_key)]
     pub api_key: String,
+
+    /// JSON file with test models and fixed replies
+    #[arg(long, env = "MOCKAI_DATA_FILE")]
+    pub data_file: Option<PathBuf>,
 }
 
 fn parse_api_key(value: &str) -> Result<String, String> {

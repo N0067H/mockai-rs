@@ -1,6 +1,7 @@
 mod app;
 mod config;
 mod error;
+mod test_data;
 
 use clap::Parser;
 use config::Config;
@@ -9,7 +10,8 @@ use tokio::net::TcpListener;
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     let config = Config::parse();
-    let app = app::router(config.api_key.clone());
+    let data = test_data::TestData::load(config.data_file.as_deref())?;
+    let app = app::router(config.api_key.clone(), data);
     let listener = TcpListener::bind(config.address()).await?;
 
     println!("mockai-rs listening on http://{}", listener.local_addr()?);
