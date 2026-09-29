@@ -1,0 +1,13 @@
+{
+  "models": [
+    {
+      "id": "mock-model",
+      "reply": "The weather is sunny.",
+      "embedding": [0.1, 0.2, 0.3],
+      "json_reply": {"city": "Seoul", "weather": "sunny"},
+      "tool_calls": [
+        {"name": "get_weather", "arguments": {"city": "Seoul"}}
+      ]
+    }
+  ]
+}

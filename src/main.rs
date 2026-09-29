@@ -4,6 +4,7 @@ mod config;
 mod embeddings;
 mod error;
 mod models;
+mod output;
 mod responses;
 mod streaming;
 mod test_data;

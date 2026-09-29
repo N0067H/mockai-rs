@@ -212,7 +212,7 @@ Content can be a string or an array of `{"type":"text","text":"..."}` parts.
 `temperature` (0 to 2) and `top_p` (0 to 1) are checked but do not change the fixed reply.
 Supported optional fields can be omitted or set to null. The current API accepts
 `stream: true` or `false`, `store: false`, `n: 1`, and `response_format: {"type":"text"}`.
-Other options, tools, JSON output, and saved chat replies return 400.
+Unsupported options and saved chat replies return 400.
 Bad input returns an OpenAI-style error with the field name in `param`.
 
 ```sh
@@ -241,8 +241,72 @@ then words in the reply. Cached and reasoning token counts are zero.
 `text: {"format":{"type":"text"}}` is accepted.
 
 This mock currently defaults to `store: false`, unlike OpenAI's default.
-`store: true`, `background: true`, tools, JSON output, and
+`store: true`, `background: true`, and
 non-null `previous_response_id` return 400. Saved responses are a separate feature.
+
+## Tool calls and JSON output
+
+Models can set `tool_calls` and `json_reply` in the data file.
+Try the sample:
+
+```sh
+cargo run -- --data-file fixtures/tools-json.json
+```
+
+`tool_calls` is an array of `{"name":"get_weather","arguments":{"city":"Seoul"}}`.
+Arguments are JSON objects in the file and JSON strings in API replies.
+The server returns calls for functions listed in the request's `tools`.
+It does not run tools. Function parameter schemas are checked against fixed arguments.
+
+`tool_choice` accepts `auto`, `none`, `required`, or a named function.
+`auto` returns matching fixed calls, or text if none match. `required` returns 400
+if no fixed call matches. `parallel_tool_calls: false` returns only the first match.
+Chat uses `{"type":"function","function":{"name":"get_weather"}}` for a named choice;
+Responses uses `{"type":"function","name":"get_weather"}`.
+
+```sh
+curl http://localhost:58881/v1/chat/completions \
+  -H 'Authorization: Bearer mock-api-key' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"mock-model","messages":[{"role":"user","content":"Weather?"}],"tools":[{"type":"function","function":{"name":"get_weather","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false}}}],"tool_choice":"required"}'
+
+curl http://localhost:58881/v1/responses \
+  -H 'Authorization: Bearer mock-api-key' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"mock-model","input":"Weather?","tools":[{"type":"function","name":"get_weather","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false}}],"tool_choice":"required"}'
+```
+
+Chat replies use `message.tool_calls`, null content, and `finish_reason: "tool_calls"`.
+Add that assistant message and a `tool` message with `tool_call_id` and text `content`
+to the next request. Responses uses `function_call` output items; add them and a
+`function_call_output` item with `call_id` and string `output` to the next input.
+With `auto`, a request ending in a tool result returns the fixed text reply.
+
+Tool streams send Chat `delta.tool_calls` or Responses
+`response.function_call_arguments.delta` and `.done` events. Join argument deltas
+by call index or item ID to get the full JSON string.
+
+`json_reply` must be an object. Without it, JSON output uses `{"message":"<reply>"}`.
+Chat takes `response_format`; Responses takes `text.format`.
+Both accept `text`, `json_object`, and `json_schema` formats, also with streaming.
+
+```sh
+curl http://localhost:58881/v1/chat/completions \
+  -H 'Authorization: Bearer mock-api-key' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"mock-model","messages":[{"role":"user","content":"Reply in JSON"}],"response_format":{"type":"json_object"}}'
+
+curl http://localhost:58881/v1/responses \
+  -H 'Authorization: Bearer mock-api-key' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"mock-model","input":"Reply in JSON","text":{"format":{"type":"json_object"}}}'
+```
+
+For `json_schema`, Chat wraps `name`, `schema`, and optional `strict` in
+`response_format.json_schema`. Responses puts them directly in `text.format`
+alongside `type: "json_schema"`. The mock checks the fixed JSON against the schema;
+it does not build data from the schema. Invalid schemas or mismatched data return 400.
+Local schema references work; external file and URL references are not loaded.
 
 ## Streams
 
@@ -308,3 +372,5 @@ See official OpenAI documentation for paths and data formats.
 - [Moderations](https://developers.openai.com/api/reference/resources/moderations)
 - [Error codes](https://developers.openai.com/api/docs/guides/error-codes)
 - [Streaming](https://developers.openai.com/api/docs/guides/streaming-responses)
+- [Function calling](https://developers.openai.com/api/docs/guides/function-calling)
+- [Structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs)

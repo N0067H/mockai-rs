@@ -27,14 +27,28 @@ pub(crate) fn chat(response: Value, include_usage: bool) -> Response {
         Event::default()
             .data(chunk(json!({"role":"assistant","content":""}), Value::Null).to_string()),
     ];
-    for text in chunks(
-        response["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap(),
-    ) {
-        events.push(Event::default().data(chunk(json!({"content":text}), Value::Null).to_string()));
+    if let Some(calls) = response["choices"][0]["message"]["tool_calls"].as_array() {
+        for (index, call) in calls.iter().enumerate() {
+            events.push(Event::default().data(chunk(json!({"tool_calls":[{"index":index,"id":call["id"],"type":"function","function":{"name":call["function"]["name"],"arguments":""}}]}), Value::Null).to_string()));
+            for arguments in chunks(call["function"]["arguments"].as_str().unwrap()) {
+                events.push(Event::default().data(chunk(json!({"tool_calls":[{"index":index,"function":{"arguments":arguments}}]}), Value::Null).to_string()));
+            }
+        }
+    } else {
+        for text in chunks(
+            response["choices"][0]["message"]["content"]
+                .as_str()
+                .unwrap(),
+        ) {
+            events.push(
+                Event::default().data(chunk(json!({"content":text}), Value::Null).to_string()),
+            );
+        }
     }
-    events.push(Event::default().data(chunk(json!({}), json!("stop")).to_string()));
+    events.push(
+        Event::default()
+            .data(chunk(json!({}), response["choices"][0]["finish_reason"].clone()).to_string()),
+    );
     if include_usage {
         let mut usage = chunk(json!({}), Value::Null);
         usage["choices"] = json!([]);
@@ -46,6 +60,9 @@ pub(crate) fn chat(response: Value, include_usage: bool) -> Response {
 }
 
 pub(crate) fn responses(response: Value) -> Response {
+    if response["output"][0]["type"] == "function_call" {
+        return response_tools(response);
+    }
     let item = response["output"][0].clone();
     let part = item["content"][0].clone();
     let mut pending = response.clone();
@@ -91,6 +108,46 @@ pub(crate) fn responses(response: Value) -> Response {
         "response.output_item.done",
         json!({"output_index":0,"item":item}),
     );
+    push("response.completed", json!({"response":response}));
+    send(events)
+}
+
+fn response_tools(response: Value) -> Response {
+    let mut pending = response.clone();
+    pending["status"] = json!("in_progress");
+    pending["output"] = json!([]);
+    pending["usage"] = Value::Null;
+    let mut events = Vec::new();
+    let mut push = |kind: &str, mut data: Value| {
+        data["type"] = json!(kind);
+        data["sequence_number"] = json!(events.len());
+        events.push(Event::default().event(kind).data(data.to_string()));
+    };
+    push("response.created", json!({"response":pending}));
+    push("response.in_progress", json!({"response":pending}));
+    for (index, item) in response["output"].as_array().unwrap().iter().enumerate() {
+        let mut started = item.clone();
+        started["status"] = json!("in_progress");
+        started["arguments"] = json!("");
+        push(
+            "response.output_item.added",
+            json!({"output_index":index,"item":started}),
+        );
+        for arguments in chunks(item["arguments"].as_str().unwrap()) {
+            push(
+                "response.function_call_arguments.delta",
+                json!({"item_id":item["id"],"output_index":index,"delta":arguments}),
+            );
+        }
+        push(
+            "response.function_call_arguments.done",
+            json!({"item_id":item["id"],"output_index":index,"arguments":item["arguments"]}),
+        );
+        push(
+            "response.output_item.done",
+            json!({"output_index":index,"item":item}),
+        );
+    }
     push("response.completed", json!({"response":response}));
     send(events)
 }

@@ -18,6 +18,25 @@ pub struct Model {
     pub owned_by: String,
     pub reply: String,
     pub embedding: Vec<f32>,
+    #[serde(default)]
+    pub json_reply: Option<serde_json::Value>,
+    #[serde(default)]
+    pub tool_calls: Vec<ToolCall>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ToolCall {
+    pub name: String,
+    pub arguments: serde_json::Value,
+}
+
+pub fn valid_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
 }
 
 fn default_owner() -> String {
@@ -53,6 +72,23 @@ impl TestData {
         }
         let mut ids = HashSet::new();
         for model in &data.models {
+            if model
+                .json_reply
+                .as_ref()
+                .is_some_and(|value| !value.is_object())
+            {
+                return Err(format!("model {} needs an object for json_reply", model.id));
+            }
+            if model
+                .tool_calls
+                .iter()
+                .any(|call| !valid_name(&call.name) || !call.arguments.is_object())
+            {
+                return Err(format!(
+                    "model {} has an invalid tool call name or arguments",
+                    model.id
+                ));
+            }
             if model.id.is_empty()
                 || !model
                     .id
@@ -124,6 +160,9 @@ mod tests {
             r#"{"models":[{"id":"test","reply":"","embedding":[1]}]}"#,
             r#"{"models":[{"id":"test","reply":"A","embedding":[]}]}"#,
             r#"{"models":[{"id":"test","reply":"A","embedding":[1]}],"typo":true}"#,
+            r#"{"models":[{"id":"test","reply":"A","embedding":[1],"json_reply":[]}] }"#,
+            r#"{"models":[{"id":"test","reply":"A","embedding":[1],"tool_calls":[{"name":"bad name","arguments":{}}]}]}"#,
+            r#"{"models":[{"id":"test","reply":"A","embedding":[1],"tool_calls":[{"name":"test","arguments":"{}"}]}]}"#,
         ] {
             assert!(TestData::parse(data).is_err(), "accepted: {data}");
         }

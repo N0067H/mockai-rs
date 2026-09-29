@@ -69,7 +69,7 @@ pub(crate) async fn create(
             "top_p" => value
                 .as_f64()
                 .is_some_and(|value| (0.0..=1.0).contains(&value)),
-            "text" => value == &json!({"format":{"type":"text"}}),
+            "text" | "tools" | "tool_choice" | "parallel_tool_calls" => true,
             _ => false,
         };
         if !valid {
@@ -85,18 +85,32 @@ pub(crate) async fn create(
         .iter()
         .find(|model| model.id == id)
         .ok_or_else(|| ApiError::model_not_found(id))?;
-    let output_tokens = model.reply.split_whitespace().count();
+    let has_result = object
+        .get("input")
+        .and_then(Value::as_array)
+        .and_then(|items| items.last())
+        .is_some_and(|item| item["type"] == "function_call_output");
+    let calls = crate::output::calls(model, object, false, has_result)?;
+    let reply = crate::output::text(model, object.get("text"), false)?;
+    let output_tokens = if calls.is_empty() {
+        reply.split_whitespace().count()
+    } else {
+        calls
+            .iter()
+            .map(|call| call.arguments.to_string().split_whitespace().count())
+            .sum()
+    };
     let sequence = state.next_response_id.fetch_add(1, Ordering::Relaxed);
     let created = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    let response = json!({
+    let mut response = json!({
         "id":format!("resp_mock_{sequence}"), "object":"response", "created_at":created,
         "status":"completed", "error":null, "incomplete_details":null,
         "model":model.id, "instructions":object.get("instructions").unwrap_or(&Value::Null),
         "output":[{"id":format!("msg_mock_{sequence}"),"type":"message","role":"assistant","status":"completed",
-            "content":[{"type":"output_text","text":model.reply,"annotations":[],"logprobs":[]}]}],
+            "content":[{"type":"output_text","text":reply,"annotations":[],"logprobs":[]}]}],
         "usage":{"input_tokens":input_tokens,"input_tokens_details":{"cached_tokens":0},
             "output_tokens":output_tokens,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":input_tokens+output_tokens},
         "store":false, "background":false, "previous_response_id":null,
@@ -106,6 +120,35 @@ pub(crate) async fn create(
         "top_p":object.get("top_p").and_then(Value::as_f64).unwrap_or(1.0),
         "max_output_tokens":null, "reasoning":{"effort":null,"summary":null}, "truncation":"disabled"
     });
+    response["tools"] = object
+        .get("tools")
+        .filter(|value| !value.is_null())
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    response["tool_choice"] = object
+        .get("tool_choice")
+        .filter(|value| !value.is_null())
+        .cloned()
+        .unwrap_or_else(|| {
+            if response["tools"].as_array().is_some_and(Vec::is_empty) {
+                json!("none")
+            } else {
+                json!("auto")
+            }
+        });
+    response["parallel_tool_calls"] = object
+        .get("parallel_tool_calls")
+        .filter(|value| !value.is_null())
+        .cloned()
+        .unwrap_or(json!(true));
+    response["text"] = object
+        .get("text")
+        .filter(|value| !value.is_null())
+        .cloned()
+        .unwrap_or_else(|| json!({"format":{"type":"text"}}));
+    if !calls.is_empty() {
+        response["output"] = json!(calls.iter().enumerate().map(|(index,call)| json!({"id":format!("fc_mock_{sequence}_{index}"),"call_id":format!("call_resp_{sequence}_{index}"),"type":"function_call","name":call.name,"arguments":call.arguments.to_string(),"status":"completed"})).collect::<Vec<_>>());
+    }
     if object.get("stream") == Some(&json!(true)) {
         Ok(crate::streaming::responses(response))
     } else {
@@ -123,6 +166,68 @@ fn count_input(input: Option<&Value>) -> Result<usize, ApiError> {
                 let item = item.as_object().ok_or_else(|| {
                     ApiError::invalid_request("Input items must be messages.", Some(&param))
                 })?;
+                if matches!(
+                    item.get("type").and_then(Value::as_str),
+                    Some("function_call" | "function_call_output")
+                ) {
+                    let is_call = item
+                        .get("type")
+                        .is_some_and(|value| value == "function_call");
+                    for (field, value) in item {
+                        let valid = match field.as_str() {
+                            "type" | "call_id" => true,
+                            "name" | "arguments" if is_call => true,
+                            "output" if !is_call => true,
+                            "id" => value.as_str().is_some_and(|id| !id.is_empty()),
+                            "status" => value == "completed",
+                            _ => false,
+                        };
+                        if !valid {
+                            return Err(ApiError::invalid_request(
+                                "Invalid function item field.",
+                                Some(&format!("{param}.{field}")),
+                            ));
+                        }
+                    }
+                    if !item
+                        .get("call_id")
+                        .and_then(Value::as_str)
+                        .is_some_and(|id| !id.is_empty())
+                    {
+                        return Err(ApiError::invalid_request(
+                            "Function items need a call_id.",
+                            Some(&param),
+                        ));
+                    }
+                    if item
+                        .get("type")
+                        .is_some_and(|value| value == "function_call")
+                    {
+                        crate::output::history_function(
+                            item.get("name").unwrap_or(&Value::Null),
+                            item.get("arguments").unwrap_or(&Value::Null),
+                            &param,
+                        )?;
+                        count += item["arguments"]
+                            .as_str()
+                            .unwrap()
+                            .split_whitespace()
+                            .count();
+                    } else {
+                        count += item
+                            .get("output")
+                            .and_then(Value::as_str)
+                            .ok_or_else(|| {
+                                ApiError::invalid_request(
+                                    "Function output must be a string.",
+                                    Some(&param),
+                                )
+                            })?
+                            .split_whitespace()
+                            .count();
+                    }
+                    continue;
+                }
                 let role = item.get("role").and_then(Value::as_str);
                 if !matches!(role, Some("system" | "developer" | "user" | "assistant")) {
                     return Err(ApiError::invalid_request(
@@ -334,8 +439,8 @@ mod tests {
             ("stream", json!("bad")),
             ("background", json!(true)),
             ("previous_response_id", json!("resp_123")),
-            ("tools", json!([])),
-            ("text", json!({"format":{"type":"json_object"}})),
+            ("tools", json!({})),
+            ("text", json!({"format":{"type":"bad"}})),
             ("temperature", json!(3)),
             ("unknown", Value::Null),
         ] {
@@ -347,7 +452,14 @@ mod tests {
             let (status, body) = send(router(), request.to_string(), true, true).await;
             assert_eq!(status, StatusCode::BAD_REQUEST, "{request}");
             assert_eq!(body["error"]["type"], "invalid_request_error");
-            assert_eq!(body["error"]["param"], param);
+            assert_eq!(
+                body["error"]["param"],
+                if param == "text" {
+                    "text.format"
+                } else {
+                    param
+                }
+            );
         }
         let (status, body) = send(
             router(),

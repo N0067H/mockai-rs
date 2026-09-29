@@ -47,19 +47,40 @@ pub(crate) async fn create(
             ApiError::invalid_request("Each message must be an object.", Some(&param))
         })?;
         let role = message.get("role").and_then(Value::as_str);
-        if !matches!(role, Some("system" | "developer" | "user" | "assistant")) {
+        if !matches!(
+            role,
+            Some("system" | "developer" | "user" | "assistant" | "tool")
+        ) {
             return Err(ApiError::invalid_request(
-                "Supported roles are system, developer, user, and assistant.",
+                "Supported roles are system, developer, user, assistant, and tool.",
                 Some(&format!("{param}.role")),
             ));
         }
         for field in message.keys() {
-            if !matches!(field.as_str(), "role" | "content" | "name") {
+            if !matches!(field.as_str(), "role" | "content" | "name")
+                && !(role == Some("assistant")
+                    && (field == "tool_calls" || (field == "refusal" && message[field].is_null())))
+                && !(role == Some("tool") && field == "tool_call_id")
+            {
                 return Err(ApiError::invalid_request(
                     "This message field is not supported yet.",
                     Some(&format!("{param}.{field}")),
                 ));
             }
+        }
+        if role == Some("tool")
+            && !message
+                .get("tool_call_id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| !id.is_empty())
+        {
+            return Err(ApiError::invalid_request(
+                "Tool messages need a tool_call_id.",
+                Some(&format!("{param}.tool_call_id")),
+            ));
+        }
+        if let Some(calls) = message.get("tool_calls") {
+            crate::output::history_calls(calls, &format!("{param}.tool_calls"))?;
         }
         if let Some(name) = message.get("name")
             && !name.is_string()
@@ -71,6 +92,8 @@ pub(crate) async fn create(
         }
         let content_param = format!("{param}.content");
         match message.get("content") {
+            None | Some(Value::Null)
+                if role == Some("assistant") && message.contains_key("tool_calls") => {}
             Some(Value::String(text)) => prompt_tokens += word_count(text),
             Some(Value::Array(parts)) if !parts.is_empty() => {
                 for part in parts {
@@ -128,7 +151,7 @@ pub(crate) async fn create(
             "top_p" => value
                 .as_f64()
                 .is_some_and(|value| (0.0..=1.0).contains(&value)),
-            "response_format" => value == &json!({"type":"text"}),
+            "response_format" | "tools" | "tool_choice" | "parallel_tool_calls" => true,
             _ => false,
         };
         if !valid {
@@ -144,20 +167,41 @@ pub(crate) async fn create(
         .iter()
         .find(|model| model.id == id)
         .ok_or_else(|| ApiError::model_not_found(id))?;
-    let completion_tokens = word_count(&model.reply);
+    let calls = crate::output::calls(
+        model,
+        object,
+        true,
+        messages
+            .last()
+            .is_some_and(|message| message["role"] == "tool"),
+    )?;
+    let reply = crate::output::text(model, object.get("response_format"), true)?;
+    let completion_tokens = if calls.is_empty() {
+        word_count(&reply)
+    } else {
+        calls
+            .iter()
+            .map(|call| word_count(&call.arguments.to_string()))
+            .sum()
+    };
     let sequence = state.next_completion_id.fetch_add(1, Ordering::Relaxed);
     let created = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    let response = json!({
+    let mut response = json!({
         "id": format!("chatcmpl-mock-{sequence}"),
         "object": "chat.completion",
         "created": created,
         "model": model.id,
-        "choices": [{"index":0,"message":{"role":"assistant","content":model.reply,"refusal":null},"finish_reason":"stop","logprobs":null}],
+        "choices": [{"index":0,"message":{"role":"assistant","content":reply,"refusal":null},"finish_reason":"stop","logprobs":null}],
         "usage": {"prompt_tokens":prompt_tokens,"completion_tokens":completion_tokens,"total_tokens":prompt_tokens+completion_tokens}
     });
+    if !calls.is_empty() {
+        response["choices"][0]["message"]["content"] = Value::Null;
+        response["choices"][0]["finish_reason"] = json!("tool_calls");
+        response["choices"][0]["message"]["tool_calls"] = json!(calls.iter().enumerate().map(|(index,call)| json!({"id":format!("call_chat_{sequence}_{index}"),"type":"function","function":{"name":call.name,"arguments":call.arguments.to_string()}})).collect::<Vec<_>>());
+    }
     if object.get("stream") == Some(&json!(true)) {
         let include_usage = object
             .get("stream_options")
@@ -273,8 +317,8 @@ mod tests {
             ("store", json!(true)),
             ("n", json!(2)),
             ("temperature", json!(3)),
-            ("tools", json!([])),
-            ("response_format", json!({"type":"json_object"})),
+            ("tools", json!({})),
+            ("response_format", json!({"type":"bad"})),
             ("unknown", Value::Null),
         ] {
             let mut request = base.clone();
